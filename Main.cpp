@@ -1,108 +1,96 @@
 #include <Adafruit_Fingerprint.h>
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-#include <SoftwareSerial.h>
+#include <LiquidCrystal.h>
 
-// Create fingerprint sensor connection
-SoftwareSerial mySerial(2, 3); // RX, TX
+// Fingerprint sensor pins
+#define rxPin 2
+#define txPin 3
+
+// Fingerprint sensor setup
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
-// Create LCD object with I2C address 0x27 for a 16 chars and 2 line display
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// LCD setup
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12); // Adjust pins as per your wiring
 
-// LED pins
-const int greenLEDPin = 7;
-const int redLEDPin = 8;
+// Motor Driver Pins
+#define IN1 5
+#define IN2 6
+#define ENA 9
+
+// Button pin
+#define buttonPin 8
 
 void setup() {
-  // Start serial communication
-  Serial.begin(9600);
-  while (!Serial); // For Leonardo/Micro/Zero
-
-  // Initialize LED pins
-  pinMode(greenLEDPin, OUTPUT);
-  pinMode(redLEDPin, OUTPUT);
-  digitalWrite(greenLEDPin, LOW);
-  digitalWrite(redLEDPin, LOW);
-
-  // Initialize LCD
-  lcd.begin();
-  lcd.backlight();
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Initializing...");
-
   // Initialize fingerprint sensor
   finger.begin(57600);
   if (finger.verifyPassword()) {
-    Serial.println("Found fingerprint sensor!");
-    lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Sensor found");
   } else {
-    Serial.println("Did not find fingerprint sensor :(");
-    lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Sensor not found");
-    while (1) { delay(1); }
+    while (1);
   }
 
-  finger.getTemplateCount();
-  Serial.print("Sensor contains ");
-  Serial.print(finger.templateCount);
-  Serial.println(" templates");
-  Serial.println("Waiting for valid finger...");
+  // Initialize LCD
+  lcd.begin(16, 2);
 
+  // Set up motor driver pins
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+
+  // Set up button pin
+  pinMode(buttonPin, INPUT_PULLUP);
+
+  // Display ready message
   lcd.setCursor(0, 1);
-  lcd.print("Waiting...");
+  lcd.print("Place Finger");
 }
 
 void loop() {
-  // Check if a fingerprint is available
-  uint8_t result = getFingerprintID();
-  if (result == FINGERPRINT_OK) {
-    Serial.println("Fingerprint matched!");
-    digitalWrite(greenLEDPin, HIGH);
-    digitalWrite(redLEDPin, LOW);
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Accepted");
-    Serial.println("Door Unlocked, Welcome!");
-  } else if (result == FINGERPRINT_NOTFOUND) {
-    Serial.println("Fingerprint not matched");
-    digitalWrite(greenLEDPin, LOW);
-    digitalWrite(redLEDPin, HIGH);
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Rejected");
-    Serial.println("Rejected");
-  } else {
-    Serial.println("Error reading fingerprint");
-    digitalWrite(greenLEDPin, LOW);
-    digitalWrite(redLEDPin, LOW);
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Error");
+  // Wait for user to press the button
+  if (digitalRead(buttonPin) == LOW) {
+    delay(500); // Debounce delay
+    uint8_t id = getFingerprintID();
+    if (id != -1) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Success: ID ");
+      lcd.print(id);
+      activateMotor();
+    } else {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Failed");
+      stopMotor();
+    }
   }
-  delay(1000); // Wait a bit before trying again
-  lcd.clear();
-  lcd.setCursor(0, 1);
-  lcd.print("Waiting...");
 }
 
+// Function to get fingerprint ID
 uint8_t getFingerprintID() {
   uint8_t p = finger.getImage();
-  if (p != FINGERPRINT_OK) return p;
+  if (p != FINGERPRINT_OK) return -1;
 
   p = finger.image2Tz();
-  if (p != FINGERPRINT_OK) return p;
+  if (p != FINGERPRINT_OK) return -1;
 
-  p = finger.fingerFastSearch();
-  if (p == FINGERPRINT_OK) {
-    Serial.print("Found ID #"); Serial.print(finger.fingerID);
-    Serial.print(" with confidence of "); Serial.println(finger.confidence);
-    return FINGERPRINT_OK;
-  } else {
-    return FINGERPRINT_NOTFOUND;
-  }
+  p = finger.fingerSearch();
+  if (p != FINGERPRINT_OK) return -1;
+
+  return finger.fingerID;
+}
+
+// Function to activate motor
+void activateMotor() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  analogWrite(ENA, 255);
+}
+
+// Function to stop motor
+void stopMotor() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  analogWrite(ENA, 0);
 }
